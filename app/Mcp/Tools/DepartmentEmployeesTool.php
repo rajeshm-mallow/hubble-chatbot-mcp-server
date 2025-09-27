@@ -107,8 +107,11 @@ class DepartmentEmployeesTool extends BaseTool
             // Prepare response data
             $responseData = [
                 'success' => true,
-                'message' => "Retrieved {$results->count()} employee(s) from {$user->team->name ?? 'your department'}",
-                'user' => [
+                'message' => sprintf(
+                    "Retrieved %d employee(s) from %s",
+                    $results->count(),
+                    $user->team->name ?? 'your department'
+                ),                'user' => [
                     'id' => $user->id,
                     'name' => $user->name,
                     'email' => $user->email,
