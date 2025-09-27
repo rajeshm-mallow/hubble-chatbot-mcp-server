@@ -20,27 +20,22 @@ RUN apt-get update && apt-get install -y \
 # Copy project files
 COPY . /var/www/html
 
-# Set permissions for storage and bootstrap/cache
-RUN chown -R www-data:www-data /var/www/html/storage /var/www/html/bootstrap/cache \
-    && chmod -R 775 /var/www/html/storage /var/www/html/bootstrap/cache
-
-# Set permissions for SQLite database and database directory
-RUN chown -R www-data:www-data /var/www/html/database \
-    && chmod -R 775 /var/www/html/database \
-    && chmod 664 /var/www/html/database/hubble_sqlite_DB_DATA.db
-
 # Install Composer CLI
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 
 # Install Laravel dependencies
 RUN composer install --no-interaction --prefer-dist --optimize-autoloader
 
-# Set Apache DocumentRoot to public
-# By default, Apache serves /var/www/html; Laravel expects /public
+# Set Apache DocumentRoot to /public
 RUN sed -ri -e 's!/var/www/html!/var/www/html/public!g' /etc/apache2/sites-available/*.conf
+
+# Fix permissions for Laravel and SQLite
+RUN chown -R www-data:www-data /var/www/html/storage /var/www/html/bootstrap/cache /var/www/html/database \
+    && chmod -R 775 /var/www/html/storage /var/www/html/bootstrap/cache /var/www/html/database \
+    && find /var/www/html/database -type f -name "*.db" -exec chmod 664 {} \;
 
 # Expose Apache port
 EXPOSE 80
 
-# Start Apache in the foreground
-CMD ["apache2-foreground"]
+# Run migrations automatically before starting Apache
+CMD php artisan migrate --force && apache2-foreground

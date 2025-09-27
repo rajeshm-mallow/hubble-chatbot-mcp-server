@@ -11,3 +11,6 @@ services:
       - "127.0.0.1:8777:80"
     env_file:
       - ./.env
+    volumes:
+      - .:/var/www/html
+      - /var/www/html/vendor       # anonymous volume keeps container's vendor
