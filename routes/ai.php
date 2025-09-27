@@ -2,4 +2,4 @@
 
 use Laravel\Mcp\Facades\Mcp;
 
-Mcp::web('/mcp/hubble-details', \App\Mcp\Servers\HubbleServer::class);
+Mcp::web('/mcp', \App\Mcp\Servers\HubbleServer::class);
