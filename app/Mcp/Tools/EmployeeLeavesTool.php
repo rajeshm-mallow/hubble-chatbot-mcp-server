@@ -6,9 +6,8 @@ use App\Models\User;
 use App\Models\Leave;
 use Laravel\Mcp\Request;
 use Laravel\Mcp\Response;
-use Laravel\Mcp\Server\Tool;
 
-class EmployeeLeavesTool extends Tool
+class EmployeeLeavesTool extends BaseTool
 {
     /**
      * The tool's name.
@@ -185,7 +184,7 @@ class EmployeeLeavesTool extends Tool
                 'leaves' => $results->toArray(),
             ];
 
-            return Response::json($responseData);
+            return Response::json(json_encode($responseData));
 
         } catch (\Exception $e) {
             return Response::error('Failed to retrieve employee leave records: ' . $e->getMessage());

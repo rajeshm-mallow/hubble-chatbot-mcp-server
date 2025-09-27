@@ -5,9 +5,8 @@ namespace App\Mcp\Tools;
 use App\Models\Role;
 use Laravel\Mcp\Request;
 use Laravel\Mcp\Response;
-use Laravel\Mcp\Server\Tool;
 
-class ListRolesTool extends Tool
+class ListRolesTool extends BaseTool
 {
     /**
      * The tool's name.

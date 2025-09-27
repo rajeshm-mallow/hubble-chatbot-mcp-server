@@ -7,9 +7,8 @@ use App\Models\User;
 use App\Models\Team;
 use Laravel\Mcp\Request;
 use Laravel\Mcp\Response;
-use Laravel\Mcp\Server\Tool;
 
-class LeaveSummaryTool extends Tool
+class LeaveSummaryTool extends BaseTool
 {
     /**
      * The tool's name.

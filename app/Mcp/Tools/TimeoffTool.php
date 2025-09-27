@@ -7,9 +7,8 @@ use App\Models\Timeoff;
 use App\Models\Team;
 use Laravel\Mcp\Request;
 use Laravel\Mcp\Response;
-use Laravel\Mcp\Server\Tool;
 
-class TimeoffTool extends Tool
+class TimeoffTool extends BaseTool
 {
     /**
      * The tool's name.

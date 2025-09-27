@@ -8,9 +8,8 @@ use App\Models\Project;
 use App\Models\Team;
 use Laravel\Mcp\Request;
 use Laravel\Mcp\Response;
-use Laravel\Mcp\Server\Tool;
 
-class CardsTool extends Tool
+class CardsTool extends BaseTool
 {
     /**
      * The tool's name.

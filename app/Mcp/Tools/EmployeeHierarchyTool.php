@@ -5,9 +5,8 @@ namespace App\Mcp\Tools;
 use App\Models\Employee;
 use Laravel\Mcp\Request;
 use Laravel\Mcp\Response;
-use Laravel\Mcp\Server\Tool;
 
-class EmployeeHierarchyTool extends Tool
+class EmployeeHierarchyTool extends BaseTool
 {
     /**
      * The tool's name.
@@ -125,7 +124,7 @@ class EmployeeHierarchyTool extends Tool
                     ] : null,
                 ],
                 'hierarchy' => $hierarchy,
-                'team_statistics' => $teamStats,
+                'team_statistics' => $teamStats
             ];
 
             return Response::json($responseData);

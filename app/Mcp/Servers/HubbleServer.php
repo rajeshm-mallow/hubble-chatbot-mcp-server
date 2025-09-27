@@ -13,7 +13,9 @@ use App\Mcp\Tools\TimesheetTool;
 use App\Mcp\Tools\ProjectTool;
 use App\Mcp\Tools\CardsTool;
 use App\Mcp\Tools\TimeoffTool;
+use App\Models\User;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Http\Request;
 use Laravel\Mcp\Server;
 use Laravel\Mcp\Server\Prompt;
 use Laravel\Mcp\Server\Resource;
@@ -117,4 +119,28 @@ class HubbleServer extends Server
     protected array $prompts = [
         //
     ];
+
+    /**
+     * Get the current user from the user_email header
+     */
+    public function getCurrentUser(): ?User
+    {
+        $request = request();
+        $userEmail = $request->header('user_email');
+        
+        if (!$userEmail) {
+            return null;
+        }
+        
+        return User::where('email', $userEmail)->first();
+    }
+
+    /**
+     * Get the current user ID from the user_email header
+     */
+    public function getCurrentUserId(): ?int
+    {
+        $user = $this->getCurrentUser();
+        return $user ? $user->id : null;
+    }
 }
