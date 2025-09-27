@@ -109,7 +109,8 @@ class LeaveSummaryTool extends BaseTool
             // Prepare response data
             $responseData = [
                 'success' => true,
-                'message' => "Leave summary generated for {$leaves->count()} leave record(s) in {$user->team->name ?? 'your department'}",
+                'message' => "Leave summary generated for {$leaves->count()} leave record(s) in "
+                    . ($user->team->name ?? 'your department'),
                 'user' => [
                     'id' => $user->id,
                     'name' => $user->name,
