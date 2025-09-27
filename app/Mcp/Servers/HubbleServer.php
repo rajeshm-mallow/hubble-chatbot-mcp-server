@@ -13,9 +13,7 @@ use App\Mcp\Tools\TimesheetTool;
 use App\Mcp\Tools\ProjectTool;
 use App\Mcp\Tools\CardsTool;
 use App\Mcp\Tools\TimeoffTool;
-use App\Models\User;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Http\Request;
 use Laravel\Mcp\Server;
 use Laravel\Mcp\Server\Prompt;
 use Laravel\Mcp\Server\Resource;
@@ -42,45 +40,50 @@ class HubbleServer extends Server
         ## Core Capabilities:
         
         ### 1. Employee Management & Search
-        - **find_employee**: Find employees by name, ID, or email with comprehensive details
-        - **user_management**: Create, update, delete, activate/deactivate user accounts
-        - **department_employees**: Get all employees in a department/team with sorting options
-        - **employee_hierarchy**: Get organizational hierarchy and reporting structure
+        - **find_employee**: Get current user's employee details and information
+        - **user_management**: Get current user's comprehensive account details
+        - **department_employees**: Get all employees in current user's department/team
+        - **employee_hierarchy**: Get current user's organizational hierarchy and reporting structure
         
         ### 2. Leave & Time-off Management
-        - **employee_leaves**: Get leave records for specific employees with filtering
-        - **leave_summary**: Comprehensive leave analytics and trends across organization
-        - **timeoff_data**: Get time-off records and team insights for short-term absences
+        - **employee_leaves**: Get current user's leave records and history
+        - **leave_summary**: Get leave analytics and trends for current user's team/department
+        - **timeoff_data**: Get current user's time-off records and insights
         
         ### 3. Timesheet & Project Tracking
-        - **timesheet_data**: Get timesheet entries for users, teams, or projects with detailed analytics
-        - **project_data**: Get project information with resource allocation and hierarchy
+        - **timesheet_data**: Get current user's timesheet entries with detailed analytics
+        - **project_data**: Get projects where current user is owner or manager
         - Track work logs, task efforts, and project time allocation
         
         ### 4. Recognition & Rewards
-        - **cards_data**: Get recognition cards (Green Cards) information and analytics
+        - **cards_data**: Get recognition cards (Green Cards) related to current user
         - Track card issuance, recipients, and team recognition trends
         
         ### 5. Role & Access Management
         - **list_roles**: List all company roles with details and permissions
         
         ## Key Features:
-        - **Multi-criteria Filtering**: Users, teams, projects, dates, status
-        - **Date Range Filtering**: Daily, weekly, monthly, yearly views
-        - **Comprehensive Analytics**: Statistics, trends, and insights
+        - **User-Centric**: All tools automatically use the current user's email from request headers
+        - **No Input Parameters**: Simplified interface - tools work based on authenticated user
+        - **Comprehensive Analytics**: Statistics, trends, and insights for current user's data
         - **Relationship Management**: Teams, designations, roles, reporting structures
         - **Performance Optimization**: Efficient queries with proper indexing
         
-        ## Example Use Cases:
-        - "Find employee John Doe and show his leave history"
-        - "Show timesheet entries for Engineering team this week"
-        - "List all active projects with resource allocation"
-        - "How many green cards were issued this month?"
-        - "Who is on leave today in the Sales team?"
-        - "Show project hierarchy for Project Alpha"
-        - "Get leave summary for Engineering department"
+        ## Authentication:
+        - All tools require a `user_email` header in the request
+        - User details are automatically fetched based on the email
+        - Tools return data relevant to the authenticated user
         
-        Use these tools to provide comprehensive HR and project management insights.
+        ## Example Use Cases:
+        - "Show my employee details"
+        - "Get my timesheet entries"
+        - "Show my leave history"
+        - "List my projects"
+        - "Get my team members"
+        - "Show my recognition cards"
+        - "Get my organizational hierarchy"
+        
+        Use these tools to provide personalized HR and project management insights for the authenticated user.
     MARKDOWN;
 
     /**
@@ -119,28 +122,4 @@ class HubbleServer extends Server
     protected array $prompts = [
         //
     ];
-
-    /**
-     * Get the current user from the user_email header
-     */
-    public function getCurrentUser(): ?User
-    {
-        $request = request();
-        $userEmail = $request->header('user_email');
-        
-        if (!$userEmail) {
-            return null;
-        }
-        
-        return User::where('email', $userEmail)->first();
-    }
-
-    /**
-     * Get the current user ID from the user_email header
-     */
-    public function getCurrentUserId(): ?int
-    {
-        $user = $this->getCurrentUser();
-        return $user ? $user->id : null;
-    }
 }

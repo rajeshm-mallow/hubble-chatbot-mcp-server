@@ -34,66 +34,7 @@ class TimesheetTool extends BaseTool
     {
         return [
             'type' => 'object',
-            'properties' => [
-                'user_id' => [
-                    'type' => 'integer',
-                    'description' => 'Get timesheet for specific user',
-                ],
-                'user_name' => [
-                    'type' => 'string',
-                    'description' => 'Get timesheet for user by name',
-                ],
-                'team_id' => [
-                    'type' => 'integer',
-                    'description' => 'Get timesheet for specific team',
-                ],
-                'team_name' => [
-                    'type' => 'string',
-                    'description' => 'Get timesheet for team by name',
-                ],
-                'project_id' => [
-                    'type' => 'integer',
-                    'description' => 'Get timesheet for specific project',
-                ],
-                'project_name' => [
-                    'type' => 'string',
-                    'description' => 'Get timesheet for project by name',
-                ],
-                'start_date' => [
-                    'type' => 'string',
-                    'format' => 'date',
-                    'description' => 'Start date for filtering (YYYY-MM-DD)',
-                ],
-                'end_date' => [
-                    'type' => 'string',
-                    'format' => 'date',
-                    'description' => 'End date for filtering (YYYY-MM-DD)',
-                ],
-                'year' => [
-                    'type' => 'integer',
-                    'description' => 'Filter by specific year',
-                ],
-                'month' => [
-                    'type' => 'integer',
-                    'description' => 'Filter by specific month (1-12)',
-                ],
-                'week' => [
-                    'type' => 'integer',
-                    'description' => 'Filter by specific week (1-52)',
-                ],
-                'include_details' => [
-                    'type' => 'boolean',
-                    'description' => 'Include detailed task and module information',
-                    'default' => false,
-                ],
-                'limit' => [
-                    'type' => 'integer',
-                    'description' => 'Maximum number of results (default: 50)',
-                    'default' => 50,
-                    'minimum' => 1,
-                    'maximum' => 200,
-                ],
-            ],
+            'properties' => [],
         ];
     }
 
@@ -103,81 +44,21 @@ class TimesheetTool extends BaseTool
     public function handle(Request $request): Response
     {
         try {
-            $userId = $request->get('user_id');
-            $userName = $request->get('user_name');
-            $teamId = $request->get('team_id');
-            $teamName = $request->get('team_name');
-            $projectId = $request->get('project_id');
-            $projectName = $request->get('project_name');
-            $startDate = $request->get('start_date');
-            $endDate = $request->get('end_date');
-            $year = $request->get('year');
-            $month = $request->get('month');
-            $week = $request->get('week');
-            $includeDetails = $request->get('include_details', false);
-            $limit = $request->get('limit', 50);
+            // Get current user from email header
+            $user = $this->getCurrentUserOrFail();
 
-            // Build the query
-            $query = TimesheetEntry::with(['user', 'project', 'module', 'task', 'team']);
-
-            // Apply user filter
-            if ($userName && !$userId) {
-                $user = User::where('name', 'like', "%{$userName}%")->first();
-                if (!$user) {
-                    return Response::error("User with name '{$userName}' not found");
-                }
-                $userId = $user->id;
-            }
-
-            if ($userId) {
-                $query->byUser($userId);
-            }
-
-            // Apply team filter
-            if ($teamName && !$teamId) {
-                $team = Team::where('name', 'like', "%{$teamName}%")->first();
-                if (!$team) {
-                    return Response::error("Team with name '{$teamName}' not found");
-                }
-                $teamId = $team->id;
-            }
-
-            if ($teamId) {
-                $query->byTeam($teamId);
-            }
-
-            // Apply project filter
-            if ($projectName && !$projectId) {
-                $project = Project::where('name', 'like', "%{$projectName}%")->first();
-                if (!$project) {
-                    return Response::error("Project with name '{$projectName}' not found");
-                }
-                $projectId = $project->id;
-            }
-
-            if ($projectId) {
-                $query->byProject($projectId);
-            }
-
-            // Apply date filters
-            if ($startDate && $endDate) {
-                $query->byDateRange($startDate, $endDate);
-            } elseif ($year && $month) {
-                $query->byMonth($year, $month);
-            } elseif ($year) {
-                $query->whereYear('entry_date', $year);
-            } elseif ($week) {
-                $query->whereRaw('WEEK(entry_date) = ?', [$week]);
-            }
+            // Build the query for current user's timesheet entries
+            $query = TimesheetEntry::with(['user', 'project', 'module', 'task', 'team'])
+                ->byUser($user->id);
 
             // Order by entry date (most recent first)
             $query->orderBy('entry_date', 'desc');
 
-            // Execute the query with limit
-            $timesheetEntries = $query->limit($limit)->get();
+            // Execute the query
+            $timesheetEntries = $query->get();
 
             // Format the results
-            $results = $timesheetEntries->map(function ($entry) use ($includeDetails) {
+            $results = $timesheetEntries->map(function ($entry) {
                 $data = [
                     'id' => $entry->id,
                     'entry_date' => $entry->entry_date->format('Y-m-d'),
@@ -201,19 +82,16 @@ class TimesheetTool extends BaseTool
                         'id' => $entry->team->id,
                         'name' => $entry->team->name,
                     ] : null,
-                ];
-
-                if ($includeDetails) {
-                    $data['module'] = $entry->module ? [
+                    'module' => $entry->module ? [
                         'id' => $entry->module->id,
                         'name' => $entry->module->name,
-                    ] : null;
-                    $data['task'] = $entry->task ? [
+                    ] : null,
+                    'task' => $entry->task ? [
                         'id' => $entry->task->id,
                         'name' => $entry->task->name,
                         'description' => $entry->task->description,
-                    ] : null;
-                }
+                    ] : null,
+                ];
 
                 return $data;
             });
@@ -225,16 +103,6 @@ class TimesheetTool extends BaseTool
                 'total_approved_hours' => $timesheetEntries->sum('approved_hours'),
                 'total_authorized_hours' => $timesheetEntries->sum('authorized_hours'),
                 'total_billed_hours' => $timesheetEntries->sum('billed_hours'),
-                'by_user' => $timesheetEntries->filter(function ($entry) {
-                    return $entry->user !== null;
-                })->groupBy(function ($entry) {
-                    return $entry->user->name;
-                })->map(function ($group) {
-                    return [
-                        'entries' => $group->count(),
-                        'total_hours' => $group->sum('working_hours'),
-                    ];
-                }),
                 'by_project' => $timesheetEntries->filter(function ($entry) {
                     return $entry->project !== null;
                 })->groupBy(function ($entry) {
@@ -260,20 +128,15 @@ class TimesheetTool extends BaseTool
             // Prepare response data
             $responseData = [
                 'success' => true,
-                'message' => "Retrieved {$results->count()} timesheet entries",
-                'filters_applied' => array_filter([
-                    'user_id' => $userId,
-                    'user_name' => $userName,
-                    'team_id' => $teamId,
-                    'team_name' => $teamName,
-                    'project_id' => $projectId,
-                    'project_name' => $projectName,
-                    'start_date' => $startDate,
-                    'end_date' => $endDate,
-                    'year' => $year,
-                    'month' => $month,
-                    'week' => $week,
-                ]),
+                'message' => "Retrieved {$results->count()} timesheet entries for {$user->name}",
+                'user' => [
+                    'id' => $user->id,
+                    'name' => $user->name,
+                    'email' => $user->email,
+                    'employee_id' => $user->employee_id,
+                    'team' => $user->team ? $user->team->name : null,
+                    'designation' => $user->designation ? $user->designation->name : null,
+                ],
                 'summary' => $summary,
                 'timesheet_entries' => $results->toArray(),
             ];

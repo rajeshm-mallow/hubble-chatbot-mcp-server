@@ -33,40 +33,7 @@ class LeaveSummaryTool extends BaseTool
     {
         return [
             'type' => 'object',
-            'properties' => [
-                'department' => [
-                    'type' => 'string',
-                    'description' => 'Filter by department',
-                ],
-                'start_date' => [
-                    'type' => 'string',
-                    'format' => 'date',
-                    'description' => 'Start date for filtering leave records (YYYY-MM-DD)',
-                ],
-                'end_date' => [
-                    'type' => 'string',
-                    'format' => 'date',
-                    'description' => 'End date for filtering leave records (YYYY-MM-DD)',
-                ],
-                'year' => [
-                    'type' => 'integer',
-                    'description' => 'Filter by specific year (e.g., 2024)',
-                ],
-                'status' => [
-                    'type' => 'string',
-                    'description' => 'Filter by leave status',
-                    'enum' => ['pending', 'approved', 'rejected', 'cancelled'],
-                ],
-                'leave_type' => [
-                    'type' => 'string',
-                    'description' => 'Filter by leave type',
-                ],
-                'include_employee_details' => [
-                    'type' => 'boolean',
-                    'description' => 'Whether to include detailed employee information (default: false)',
-                    'default' => false,
-                ],
-            ],
+            'properties' => [],
         ];
     }
 
@@ -76,38 +43,17 @@ class LeaveSummaryTool extends BaseTool
     public function handle(Request $request): Response
     {
         try {
-            $department = $request->get('department');
-            $startDate = $request->get('start_date');
-            $endDate = $request->get('end_date');
-            $year = $request->get('year');
-            $status = $request->get('status');
-            $leaveType = $request->get('leave_type');
-            $includeEmployeeDetails = $request->get('include_employee_details', false);
+            // Get current user from email header
+            $user = $this->getCurrentUserOrFail();
 
-            // Build the base query
+            // Build the base query for current user's team/department
             $query = Leave::with(['user', 'approvedBy', 'appliedBy']);
 
-            // Apply filters
-            if ($department) {
-                $query->whereHas('user', function ($q) use ($department) {
-                    $q->whereHas('team', function ($subQ) use ($department) {
-                        $subQ->where('name', 'like', "%{$department}%");
-                    });
+            // Filter by user's team/department
+            if ($user->team) {
+                $query->whereHas('user', function ($q) use ($user) {
+                    $q->where('team_id', $user->team_id);
                 });
-            }
-
-            if ($status) {
-                $query->byStatus($status);
-            }
-
-            if ($leaveType) {
-                $query->byType($leaveType);
-            }
-
-            if ($startDate && $endDate) {
-                $query->byDateRange($startDate, $endDate);
-            } elseif ($year) {
-                $query->whereYear('date', $year);
             }
 
             // Execute the query
@@ -133,14 +79,6 @@ class LeaveSummaryTool extends BaseTool
                     return [
                         'count' => $group->count(),
                         'percentage' => $totalLeaves > 0 ? round(($group->count() / $totalLeaves) * 100, 2) : 0,
-                    ];
-                }),
-                'by_department' => $leaves->groupBy(function ($leave) {
-                    return $leave->user && $leave->user->team ? $leave->user->team->name : 'Unknown';
-                })->map(function ($group) {
-                    return [
-                        'count' => $group->count(),
-                        'employees' => $group->pluck('user_id')->unique()->count(),
                     ];
                 }),
                 'by_month' => $leaves->groupBy(function ($leave) {
@@ -171,22 +109,18 @@ class LeaveSummaryTool extends BaseTool
             // Prepare response data
             $responseData = [
                 'success' => true,
-                'message' => "Leave summary generated for {$leaves->count()} leave record(s)",
-                'filters_applied' => array_filter([
-                    'department' => $department,
-                    'start_date' => $startDate,
-                    'end_date' => $endDate,
-                    'year' => $year,
-                    'status' => $status,
-                    'leave_type' => $leaveType,
-                ]),
+                'message' => "Leave summary generated for {$leaves->count()} leave record(s) in {$user->team->name ?? 'your department'}",
+                'user' => [
+                    'id' => $user->id,
+                    'name' => $user->name,
+                    'email' => $user->email,
+                    'employee_id' => $user->employee_id,
+                    'team' => $user->team ? $user->team->name : null,
+                    'designation' => $user->designation ? $user->designation->name : null,
+                ],
                 'statistics' => $stats,
                 'top_employees_by_leave' => $topEmployeesByLeave,
-            ];
-
-            // Include detailed employee information if requested
-            if ($includeEmployeeDetails) {
-                $responseData['employees'] = $leaves->groupBy('user_id')->map(function ($group) {
+                'employees' => $leaves->groupBy('user_id')->map(function ($group) {
                     $user = $group->first()->user;
                     return [
                         'id' => $user ? $user->id : null,
@@ -206,8 +140,8 @@ class LeaveSummaryTool extends BaseTool
                             ];
                         })->values(),
                     ];
-                })->values();
-            }
+                })->values(),
+            ];
 
             return Response::json($responseData);
 

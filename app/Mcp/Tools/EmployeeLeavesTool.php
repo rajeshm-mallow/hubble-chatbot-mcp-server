@@ -32,46 +32,7 @@ class EmployeeLeavesTool extends BaseTool
     {
         return [
             'type' => 'object',
-            'properties' => [
-                'employee_id' => [
-                    'type' => 'integer',
-                    'description' => 'The ID of the employee to get leave records for',
-                ],
-                'employee_name' => [
-                    'type' => 'string',
-                    'description' => 'The name of the employee to get leave records for (alternative to employee_id)',
-                ],
-                'status' => [
-                    'type' => 'string',
-                    'description' => 'Filter by leave status (pending, approved, rejected)',
-                    'enum' => ['pending', 'approved', 'rejected', 'cancelled'],
-                ],
-                'leave_type' => [
-                    'type' => 'string',
-                    'description' => 'Filter by leave type (vacation, sick, personal, etc.)',
-                ],
-                'start_date' => [
-                    'type' => 'string',
-                    'format' => 'date',
-                    'description' => 'Start date for filtering leave records (YYYY-MM-DD)',
-                ],
-                'end_date' => [
-                    'type' => 'string',
-                    'format' => 'date',
-                    'description' => 'End date for filtering leave records (YYYY-MM-DD)',
-                ],
-                'year' => [
-                    'type' => 'integer',
-                    'description' => 'Filter by specific year (e.g., 2024)',
-                ],
-                'limit' => [
-                    'type' => 'integer',
-                    'description' => 'Maximum number of results to return (default: 20)',
-                    'default' => 20,
-                    'minimum' => 1,
-                    'maximum' => 100,
-                ],
-            ],
+            'properties' => [],
         ];
     }
 
@@ -81,59 +42,18 @@ class EmployeeLeavesTool extends BaseTool
     public function handle(Request $request): Response
     {
         try {
-            $employeeId = $request->get('employee_id');
-            $employeeName = $request->get('employee_name');
-            $status = $request->get('status');
-            $leaveType = $request->get('leave_type');
-            $startDate = $request->get('start_date');
-            $endDate = $request->get('end_date');
-            $year = $request->get('year');
-            $limit = $request->get('limit', 20);
+            // Get current user from email header
+            $user = $this->getCurrentUserOrFail();
 
-            // Find employee if name is provided instead of ID
-            if ($employeeName && !$employeeId) {
-                $employee = User::where('name', 'like', "%{$employeeName}%")->first();
-                if (!$employee) {
-                    return Response::error("Employee with name '{$employeeName}' not found");
-                }
-                $employeeId = $employee->id;
-            }
-
-            // Validate employee ID
-            if (!$employeeId) {
-                return Response::error('Either employee_id or employee_name must be provided');
-            }
-
-            // Verify employee exists
-            $employee = User::find($employeeId);
-            if (!$employee) {
-                return Response::error("Employee with ID {$employeeId} not found");
-            }
-
-            // Build the query
+            // Build the query for current user's leaves
             $query = Leave::with(['user', 'approvedBy', 'appliedBy'])
-                ->byUser($employeeId);
-
-            // Apply filters
-            if ($status) {
-                $query->byStatus($status);
-            }
-
-            if ($leaveType) {
-                $query->byType($leaveType);
-            }
-
-            if ($startDate && $endDate) {
-                $query->byDateRange($startDate, $endDate);
-            } elseif ($year) {
-                $query->whereYear('date', $year);
-            }
+                ->byUser($user->id);
 
             // Order by date (most recent first)
             $query->orderBy('date', 'desc');
 
-            // Execute the query with limit
-            $leaves = $query->limit($limit)->get();
+            // Execute the query
+            $leaves = $query->get();
 
             // Format the results
             $results = $leaves->map(function ($leave) {
@@ -171,20 +91,20 @@ class EmployeeLeavesTool extends BaseTool
             // Prepare response data
             $responseData = [
                 'success' => true,
-                'message' => "Retrieved {$results->count()} leave record(s) for {$employee->name}",
+                'message' => "Retrieved {$results->count()} leave record(s) for {$user->name}",
                 'employee' => [
-                    'id' => $employee->id,
-                    'name' => $employee->name,
-                    'email' => $employee->email,
-                    'employee_id' => $employee->employee_id,
-                    'team' => $employee->team ? $employee->team->name : null,
-                    'designation' => $employee->designation ? $employee->designation->name : null,
+                    'id' => $user->id,
+                    'name' => $user->name,
+                    'email' => $user->email,
+                    'employee_id' => $user->employee_id,
+                    'team' => $user->team ? $user->team->name : null,
+                    'designation' => $user->designation ? $user->designation->name : null,
                 ],
                 'summary' => $summary,
                 'leaves' => $results->toArray(),
             ];
 
-            return Response::json(json_encode($responseData));
+            return Response::json($responseData);
 
         } catch (\Exception $e) {
             return Response::error('Failed to retrieve employee leave records: ' . $e->getMessage());

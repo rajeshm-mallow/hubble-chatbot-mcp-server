@@ -34,54 +34,7 @@ class ProjectTool extends BaseTool
     {
         return [
             'type' => 'object',
-            'properties' => [
-                'project_id' => [
-                    'type' => 'integer',
-                    'description' => 'Get specific project by ID',
-                ],
-                'project_name' => [
-                    'type' => 'string',
-                    'description' => 'Search projects by name',
-                ],
-                'parent_project_id' => [
-                    'type' => 'integer',
-                    'description' => 'Get projects under specific parent project',
-                ],
-                'parent_project_name' => [
-                    'type' => 'string',
-                    'description' => 'Get projects under parent project by name',
-                ],
-                'status' => [
-                    'type' => 'string',
-                    'description' => 'Filter by project status',
-                    'enum' => ['active', 'completed', 'on_hold', 'cancelled'],
-                ],
-                'project_owner_id' => [
-                    'type' => 'integer',
-                    'description' => 'Get projects owned by specific user',
-                ],
-                'project_manager_id' => [
-                    'type' => 'integer',
-                    'description' => 'Get projects managed by specific user',
-                ],
-                'include_resources' => [
-                    'type' => 'boolean',
-                    'description' => 'Include resource allocation details',
-                    'default' => false,
-                ],
-                'include_hierarchy' => [
-                    'type' => 'boolean',
-                    'description' => 'Include parent-child project relationships',
-                    'default' => false,
-                ],
-                'limit' => [
-                    'type' => 'integer',
-                    'description' => 'Maximum number of results (default: 50)',
-                    'default' => 50,
-                    'minimum' => 1,
-                    'maximum' => 100,
-                ],
-            ],
+            'properties' => [],
         ];
     }
 
@@ -91,61 +44,24 @@ class ProjectTool extends BaseTool
     public function handle(Request $request): Response
     {
         try {
-            $projectId = $request->get('project_id');
-            $projectName = $request->get('project_name');
-            $parentProjectId = $request->get('parent_project_id');
-            $parentProjectName = $request->get('parent_project_name');
-            $status = $request->get('status');
-            $projectOwnerId = $request->get('project_owner_id');
-            $projectManagerId = $request->get('project_manager_id');
-            $includeResources = $request->get('include_resources', false);
-            $includeHierarchy = $request->get('include_hierarchy', false);
-            $limit = $request->get('limit', 50);
+            // Get current user from email header
+            $user = $this->getCurrentUserOrFail();
 
-            // Build the query
-            $query = Project::with(['projectOwner', 'projectManager', 'parentProject']);
-
-            // Apply filters
-            if ($projectId) {
-                $query->where('id', $projectId);
-            }
-
-            if ($projectName) {
-                $query->where('name', 'like', "%{$projectName}%");
-            }
-
-            if ($parentProjectName && !$parentProjectId) {
-                $parentProject = ParentProject::where('name', 'like', "%{$parentProjectName}%")->first();
-                if (!$parentProject) {
-                    return Response::error("Parent project with name '{$parentProjectName}' not found");
-                }
-                $parentProjectId = $parentProject->id;
-            }
-
-            if ($parentProjectId) {
-                $query->where('parent_project_id', $parentProjectId);
-            }
-
-            if ($status) {
-                $query->byStatus($status);
-            }
-
-            if ($projectOwnerId) {
-                $query->where('project_owner_id', $projectOwnerId);
-            }
-
-            if ($projectManagerId) {
-                $query->where('project_manager_id', $projectManagerId);
-            }
+            // Get projects where user is owner or manager
+            $query = Project::with(['projectOwner', 'projectManager', 'parentProject'])
+                ->where(function ($q) use ($user) {
+                    $q->where('project_owner_id', $user->id)
+                      ->orWhere('project_manager_id', $user->id);
+                });
 
             // Order by name
             $query->orderBy('name');
 
-            // Execute the query with limit
-            $projects = $query->limit($limit)->get();
+            // Execute the query
+            $projects = $query->get();
 
             // Format the results
-            $results = $projects->map(function ($project) use ($includeResources, $includeHierarchy) {
+            $results = $projects->map(function ($project) {
                 $data = [
                     'id' => $project->id,
                     'project_id' => $project->project_id,
@@ -167,7 +83,7 @@ class ProjectTool extends BaseTool
                     'created_at' => $project->created_at->format('Y-m-d H:i:s'),
                 ];
 
-                if ($includeHierarchy && $project->parentProject) {
+                if ($project->parentProject) {
                     $data['parent_project'] = [
                         'id' => $project->parentProject->id,
                         'name' => $project->parentProject->name,
@@ -175,33 +91,32 @@ class ProjectTool extends BaseTool
                     ];
                 }
 
-                if ($includeResources) {
-                    $data['resources'] = $project->projectResources()->with(['user', 'reportingPerson', 'designation'])->get()->map(function ($resource) {
-                        return [
-                            'id' => $resource->id,
-                            'user' => $resource->user ? [
-                                'id' => $resource->user->id,
-                                'name' => $resource->user->name,
-                                'employee_id' => $resource->user->employee_id,
-                            ] : null,
-                            'resource_type' => $resource->resource_type,
-                            'utilisation' => $resource->utilisation,
-                            'charge_by_hour' => $resource->charge_by_hour,
-                            'primary_project' => $resource->primary_project,
-                            'project_owner' => $resource->project_owner,
-                            'allotted_from' => $resource->allotted_from?->format('Y-m-d'),
-                            'allotted_to' => $resource->allotted_to?->format('Y-m-d'),
-                            'reporting_person' => $resource->reportingPerson ? [
-                                'id' => $resource->reportingPerson->id,
-                                'name' => $resource->reportingPerson->name,
-                            ] : null,
-                            'designation' => $resource->designation ? [
-                                'id' => $resource->designation->id,
-                                'name' => $resource->designation->name,
-                            ] : null,
-                        ];
-                    });
-                }
+                // Include resources for user's projects
+                $data['resources'] = $project->projectResources()->with(['user', 'reportingPerson', 'designation'])->get()->map(function ($resource) {
+                    return [
+                        'id' => $resource->id,
+                        'user' => $resource->user ? [
+                            'id' => $resource->user->id,
+                            'name' => $resource->user->name,
+                            'employee_id' => $resource->user->employee_id,
+                        ] : null,
+                        'resource_type' => $resource->resource_type,
+                        'utilisation' => $resource->utilisation,
+                        'charge_by_hour' => $resource->charge_by_hour,
+                        'primary_project' => $resource->primary_project,
+                        'project_owner' => $resource->project_owner,
+                        'allotted_from' => $resource->allotted_from?->format('Y-m-d'),
+                        'allotted_to' => $resource->allotted_to?->format('Y-m-d'),
+                        'reporting_person' => $resource->reportingPerson ? [
+                            'id' => $resource->reportingPerson->id,
+                            'name' => $resource->reportingPerson->name,
+                        ] : null,
+                        'designation' => $resource->designation ? [
+                            'id' => $resource->designation->id,
+                            'name' => $resource->designation->name,
+                        ] : null,
+                    ];
+                });
 
                 return $data;
             });
@@ -213,30 +128,26 @@ class ProjectTool extends BaseTool
                 'by_billing_frequency' => $projects->groupBy('billing_frequency')->map->count(),
                 'active_projects' => $projects->where('status', 'active')->count(),
                 'completed_projects' => $projects->where('status', 'completed')->count(),
-            ];
-
-            if ($includeResources) {
-                $summary['total_resources'] = $projects->sum(function ($project) {
+                'total_resources' => $projects->sum(function ($project) {
                     return $project->projectResources()->count();
-                });
-                $summary['primary_projects'] = $projects->sum(function ($project) {
+                }),
+                'primary_projects' => $projects->sum(function ($project) {
                     return $project->projectResources()->where('primary_project', true)->count();
-                });
-            }
+                }),
+            ];
 
             // Prepare response data
             $responseData = [
                 'success' => true,
-                'message' => "Retrieved {$results->count()} project(s)",
-                'filters_applied' => array_filter([
-                    'project_id' => $projectId,
-                    'project_name' => $projectName,
-                    'parent_project_id' => $parentProjectId,
-                    'parent_project_name' => $parentProjectName,
-                    'status' => $status,
-                    'project_owner_id' => $projectOwnerId,
-                    'project_manager_id' => $projectManagerId,
-                ]),
+                'message' => "Retrieved {$results->count()} project(s) for {$user->name}",
+                'user' => [
+                    'id' => $user->id,
+                    'name' => $user->name,
+                    'email' => $user->email,
+                    'employee_id' => $user->employee_id,
+                    'team' => $user->team ? $user->team->name : null,
+                    'designation' => $user->designation ? $user->designation->name : null,
+                ],
                 'summary' => $summary,
                 'projects' => $results->toArray(),
             ];

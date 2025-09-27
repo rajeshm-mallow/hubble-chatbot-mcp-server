@@ -31,37 +31,7 @@ class DepartmentEmployeesTool extends BaseTool
     {
         return [
             'type' => 'object',
-            'properties' => [
-                'department' => [
-                    'type' => 'string',
-                    'description' => 'The department name to get employees for',
-                ],
-                'include_inactive' => [
-                    'type' => 'boolean',
-                    'description' => 'Whether to include inactive employees (default: false)',
-                    'default' => false,
-                ],
-                'sort_by' => [
-                    'type' => 'string',
-                    'description' => 'Sort employees by field (name, position, hire_date)',
-                    'enum' => ['name', 'position', 'hire_date', 'salary'],
-                    'default' => 'name',
-                ],
-                'sort_order' => [
-                    'type' => 'string',
-                    'description' => 'Sort order (asc or desc)',
-                    'enum' => ['asc', 'desc'],
-                    'default' => 'asc',
-                ],
-                'limit' => [
-                    'type' => 'integer',
-                    'description' => 'Maximum number of results to return (default: 50)',
-                    'default' => 50,
-                    'minimum' => 1,
-                    'maximum' => 200,
-                ],
-            ],
-            'required' => ['department'],
+            'properties' => [],
         ];
     }
 
@@ -71,31 +41,21 @@ class DepartmentEmployeesTool extends BaseTool
     public function handle(Request $request): Response
     {
         try {
-            $department = $request->get('department');
-            $includeInactive = $request->get('include_inactive', false);
-            $sortBy = $request->get('sort_by', 'name');
-            $sortOrder = $request->get('sort_order', 'asc');
-            $limit = $request->get('limit', 50);
+            // Get current user from email header
+            $user = $this->getCurrentUserOrFail();
 
-            // Validate department
-            if (empty(trim($department))) {
-                return Response::error('Department name cannot be empty');
-            }
+            // Get employees from user's team/department
+            $query = User::with(['roles', 'team', 'designation', 'branch'])
+                ->where('team_id', $user->team_id);
 
-            // Build the query
-            $query = Employee::with(['role', 'manager'])
-                ->where('department', $department);
+            // Filter out inactive employees
+            $query->active();
 
-            // Filter out inactive employees unless specifically requested
-            if (!$includeInactive) {
-                $query->active();
-            }
+            // Order by name
+            $query->orderBy('name');
 
-            // Apply sorting
-            $query->orderBy($sortBy, $sortOrder);
-
-            // Execute the query with limit
-            $employees = $query->limit($limit)->get();
+            // Execute the query
+            $employees = $query->get();
 
             // Format the results
             $results = $employees->map(function ($employee) {
@@ -104,53 +64,62 @@ class DepartmentEmployeesTool extends BaseTool
                     'employee_id' => $employee->employee_id,
                     'name' => $employee->name,
                     'email' => $employee->email,
-                    'phone' => $employee->phone,
-                    'position' => $employee->position,
-                    'hire_date' => $employee->hire_date?->format('Y-m-d'),
-                    'salary' => $employee->salary,
+                    'username' => $employee->username,
                     'status' => $employee->status,
-                    'role' => $employee->role ? [
-                        'id' => $employee->role->id,
-                        'name' => $employee->role->name,
-                        'level' => $employee->role->level,
+                    'active_status' => $employee->active_status,
+                    'is_employed' => $employee->is_employed,
+                    'team' => $employee->team ? [
+                        'id' => $employee->team->id,
+                        'name' => $employee->team->name,
+                        'type' => $employee->team->type,
                     ] : null,
-                    'manager' => $employee->manager ? [
-                        'id' => $employee->manager->id,
-                        'name' => $employee->manager->name,
-                        'email' => $employee->manager->email,
+                    'designation' => $employee->designation ? [
+                        'id' => $employee->designation->id,
+                        'name' => $employee->designation->name,
+                        'type' => $employee->designation->type,
                     ] : null,
+                    'branch' => $employee->branch ? [
+                        'id' => $employee->branch->id,
+                        'name' => $employee->branch->name,
+                        'city' => $employee->branch->city,
+                        'state' => $employee->branch->state,
+                    ] : null,
+                    'roles' => $employee->roles->map(function ($role) {
+                        return [
+                            'id' => $role->id,
+                            'name' => $role->name,
+                            'display_name' => $role->display_name,
+                        ];
+                    }),
                 ];
             });
 
             // Calculate department statistics
             $stats = [
                 'total_employees' => $employees->count(),
-                'active_employees' => $employees->where('status', 'active')->count(),
-                'inactive_employees' => $employees->where('status', 'inactive')->count(),
-                'by_position' => $employees->groupBy('position')->map->count(),
-                'by_role' => $employees->groupBy('role.name')->map->count(),
-                'average_salary' => $employees->where('salary', '>', 0)->avg('salary'),
-                'newest_hire' => $employees->max('hire_date')?->format('Y-m-d'),
-                'oldest_hire' => $employees->min('hire_date')?->format('Y-m-d'),
+                'active_employees' => $employees->where('active_status', 'active')->count(),
+                'inactive_employees' => $employees->where('active_status', 'inactive')->count(),
+                'by_designation' => $employees->groupBy('designation.name')->map->count(),
+                'by_status' => $employees->groupBy('status')->map->count(),
+                'by_branch' => $employees->groupBy('branch.name')->map->count(),
             ];
 
             // Prepare response data
             $responseData = [
                 'success' => true,
-                'message' => "Retrieved {$results->count()} employee(s) from {$department} department",
-                'department' => $department,
+                'message' => "Retrieved {$results->count()} employee(s) from {$user->team->name ?? 'your department'}",
+                'user' => [
+                    'id' => $user->id,
+                    'name' => $user->name,
+                    'email' => $user->email,
+                    'employee_id' => $user->employee_id,
+                    'team' => $user->team ? $user->team->name : null,
+                    'designation' => $user->designation ? $user->designation->name : null,
+                ],
+                'department' => $user->team ? $user->team->name : 'Unknown',
                 'statistics' => $stats,
                 'employees' => $results->toArray(),
             ];
-
-            // Add suggestions if no results found
-            if ($results->isEmpty()) {
-                $responseData['suggestions'] = [
-                    'Check if the department name is spelled correctly',
-                    'Try including inactive employees (use include_inactive: true)',
-                    'Verify that employees exist in this department',
-                ];
-            }
 
             return Response::json($responseData);
 

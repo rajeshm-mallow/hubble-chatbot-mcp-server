@@ -34,88 +34,7 @@ class CardsTool extends BaseTool
     {
         return [
             'type' => 'object',
-            'properties' => [
-                'card_id' => [
-                    'type' => 'integer',
-                    'description' => 'Get specific card by ID',
-                ],
-                'type' => [
-                    'type' => 'string',
-                    'description' => 'Filter by card type (e.g., Green Card)',
-                ],
-                'suggestion_status' => [
-                    'type' => 'string',
-                    'description' => 'Filter by suggestion status',
-                    'enum' => ['pending', 'approved', 'rejected'],
-                ],
-                'issuing_status' => [
-                    'type' => 'string',
-                    'description' => 'Filter by issuing status',
-                    'enum' => ['pending', 'issued', 'rejected'],
-                ],
-                'suggested_by' => [
-                    'type' => 'integer',
-                    'description' => 'Get cards suggested by specific user',
-                ],
-                'issued_by' => [
-                    'type' => 'integer',
-                    'description' => 'Get cards issued by specific user',
-                ],
-                'recipient_id' => [
-                    'type' => 'integer',
-                    'description' => 'Get cards received by specific user',
-                ],
-                'recipient_name' => [
-                    'type' => 'string',
-                    'description' => 'Get cards received by user name',
-                ],
-                'project_id' => [
-                    'type' => 'integer',
-                    'description' => 'Get cards for specific project',
-                ],
-                'project_name' => [
-                    'type' => 'string',
-                    'description' => 'Get cards for project by name',
-                ],
-                'team_id' => [
-                    'type' => 'integer',
-                    'description' => 'Get cards for specific team',
-                ],
-                'team_name' => [
-                    'type' => 'string',
-                    'description' => 'Get cards for team by name',
-                ],
-                'start_date' => [
-                    'type' => 'string',
-                    'format' => 'date',
-                    'description' => 'Filter cards issued from this date (YYYY-MM-DD)',
-                ],
-                'end_date' => [
-                    'type' => 'string',
-                    'format' => 'date',
-                    'description' => 'Filter cards issued until this date (YYYY-MM-DD)',
-                ],
-                'year' => [
-                    'type' => 'integer',
-                    'description' => 'Filter by specific year',
-                ],
-                'month' => [
-                    'type' => 'integer',
-                    'description' => 'Filter by specific month (1-12)',
-                ],
-                'include_recipients' => [
-                    'type' => 'boolean',
-                    'description' => 'Include detailed recipient information',
-                    'default' => false,
-                ],
-                'limit' => [
-                    'type' => 'integer',
-                    'description' => 'Maximum number of results (default: 50)',
-                    'default' => 50,
-                    'minimum' => 1,
-                    'maximum' => 100,
-                ],
-            ],
+            'properties' => [],
         ];
     }
 
@@ -125,115 +44,27 @@ class CardsTool extends BaseTool
     public function handle(Request $request): Response
     {
         try {
-            $cardId = $request->get('card_id');
-            $type = $request->get('type');
-            $suggestionStatus = $request->get('suggestion_status');
-            $issuingStatus = $request->get('issuing_status');
-            $suggestedBy = $request->get('suggested_by');
-            $issuedBy = $request->get('issued_by');
-            $recipientId = $request->get('recipient_id');
-            $recipientName = $request->get('recipient_name');
-            $projectId = $request->get('project_id');
-            $projectName = $request->get('project_name');
-            $teamId = $request->get('team_id');
-            $teamName = $request->get('team_name');
-            $startDate = $request->get('start_date');
-            $endDate = $request->get('end_date');
-            $year = $request->get('year');
-            $month = $request->get('month');
-            $includeRecipients = $request->get('include_recipients', false);
-            $limit = $request->get('limit', 50);
+            // Get current user from email header
+            $user = $this->getCurrentUserOrFail();
 
-            // Build the query
-            $query = Card::with(['project', 'suggestedBy', 'issuedBy']);
-
-            // Apply filters
-            if ($cardId) {
-                $query->where('id', $cardId);
-            }
-
-            if ($type) {
-                $query->byType($type);
-            }
-
-            if ($suggestionStatus) {
-                $query->bySuggestionStatus($suggestionStatus);
-            }
-
-            if ($issuingStatus) {
-                $query->byIssuingStatus($issuingStatus);
-            }
-
-            if ($suggestedBy) {
-                $query->where('suggested_id', $suggestedBy);
-            }
-
-            if ($issuedBy) {
-                $query->where('issuer_id', $issuedBy);
-            }
-
-            // Apply recipient filter
-            if ($recipientName && !$recipientId) {
-                $user = User::where('name', 'like', "%{$recipientName}%")->first();
-                if (!$user) {
-                    return Response::error("User with name '{$recipientName}' not found");
-                }
-                $recipientId = $user->id;
-            }
-
-            if ($recipientId) {
-                $query->whereHas('users', function ($q) use ($recipientId) {
-                    $q->where('user_id', $recipientId);
+            // Build the query for cards related to current user
+            $query = Card::with(['project', 'suggestedBy', 'issuedBy'])
+                ->where(function ($q) use ($user) {
+                    $q->where('suggested_id', $user->id)
+                      ->orWhere('issuer_id', $user->id)
+                      ->orWhereHas('users', function ($subQ) use ($user) {
+                          $subQ->where('user_id', $user->id);
+                      });
                 });
-            }
-
-            // Apply project filter
-            if ($projectName && !$projectId) {
-                $project = Project::where('name', 'like', "%{$projectName}%")->first();
-                if (!$project) {
-                    return Response::error("Project with name '{$projectName}' not found");
-                }
-                $projectId = $project->id;
-            }
-
-            if ($projectId) {
-                $query->where('project_id', $projectId);
-            }
-
-            // Apply team filter
-            if ($teamName && !$teamId) {
-                $team = Team::where('name', 'like', "%{$teamName}%")->first();
-                if (!$team) {
-                    return Response::error("Team with name '{$teamName}' not found");
-                }
-                $teamId = $team->id;
-            }
-
-            if ($teamId) {
-                $query->whereHas('users', function ($q) use ($teamId) {
-                    $q->whereHas('team', function ($subQ) use ($teamId) {
-                        $subQ->where('id', $teamId);
-                    });
-                });
-            }
-
-            // Apply date filters
-            if ($startDate && $endDate) {
-                $query->byDateRange($startDate, $endDate);
-            } elseif ($year && $month) {
-                $query->whereYear('issued_at', $year)->whereMonth('issued_at', $month);
-            } elseif ($year) {
-                $query->whereYear('issued_at', $year);
-            }
 
             // Order by issued date (most recent first)
             $query->orderBy('issued_at', 'desc');
 
-            // Execute the query with limit
-            $cards = $query->limit($limit)->get();
+            // Execute the query
+            $cards = $query->get();
 
             // Format the results
-            $results = $cards->map(function ($card) use ($includeRecipients) {
+            $results = $cards->map(function ($card) {
                 $data = [
                     'id' => $card->id,
                     'type' => $card->type,
@@ -264,24 +95,23 @@ class CardsTool extends BaseTool
                     ] : null,
                 ];
 
-                if ($includeRecipients) {
-                    $data['recipients'] = $card->users()->with(['team', 'designation'])->get()->map(function ($user) {
-                        return [
-                            'id' => $user->id,
-                            'name' => $user->name,
-                            'employee_id' => $user->employee_id,
-                            'email' => $user->email,
-                            'team' => $user->team ? [
-                                'id' => $user->team->id,
-                                'name' => $user->team->name,
-                            ] : null,
-                            'designation' => $user->designation ? [
-                                'id' => $user->designation->id,
-                                'name' => $user->designation->name,
-                            ] : null,
-                        ];
-                    });
-                }
+                // Include recipients for user's cards
+                $data['recipients'] = $card->users()->with(['team', 'designation'])->get()->map(function ($user) {
+                    return [
+                        'id' => $user->id,
+                        'name' => $user->name,
+                        'employee_id' => $user->employee_id,
+                        'email' => $user->email,
+                        'team' => $user->team ? [
+                            'id' => $user->team->id,
+                            'name' => $user->team->name,
+                        ] : null,
+                        'designation' => $user->designation ? [
+                            'id' => $user->designation->id,
+                            'name' => $user->designation->name,
+                        ] : null,
+                    ];
+                });
 
                 return $data;
             });
@@ -295,41 +125,28 @@ class CardsTool extends BaseTool
                 'by_project' => $cards->groupBy('project.name')->map->count(),
                 'issued_this_month' => $cards->where('issued_at', '>=', now()->startOfMonth())->count(),
                 'issued_this_year' => $cards->where('issued_at', '>=', now()->startOfYear())->count(),
-            ];
-
-            if ($includeRecipients) {
-                $summary['total_recipients'] = $cards->sum(function ($card) {
+                'total_recipients' => $cards->sum(function ($card) {
                     return $card->users()->count();
-                });
-                $summary['by_team'] = $cards->flatMap(function ($card) {
+                }),
+                'by_team' => $cards->flatMap(function ($card) {
                     return $card->users()->with('team')->get()->pluck('team.name');
                 })->filter()->groupBy(function ($teamName) {
                     return $teamName;
-                })->map->count();
-            }
+                })->map->count(),
+            ];
 
             // Prepare response data
             $responseData = [
                 'success' => true,
-                'message' => "Retrieved {$results->count()} card(s)",
-                'filters_applied' => array_filter([
-                    'card_id' => $cardId,
-                    'type' => $type,
-                    'suggestion_status' => $suggestionStatus,
-                    'issuing_status' => $issuingStatus,
-                    'suggested_by' => $suggestedBy,
-                    'issued_by' => $issuedBy,
-                    'recipient_id' => $recipientId,
-                    'recipient_name' => $recipientName,
-                    'project_id' => $projectId,
-                    'project_name' => $projectName,
-                    'team_id' => $teamId,
-                    'team_name' => $teamName,
-                    'start_date' => $startDate,
-                    'end_date' => $endDate,
-                    'year' => $year,
-                    'month' => $month,
-                ]),
+                'message' => "Retrieved {$results->count()} card(s) for {$user->name}",
+                'user' => [
+                    'id' => $user->id,
+                    'name' => $user->name,
+                    'email' => $user->email,
+                    'employee_id' => $user->employee_id,
+                    'team' => $user->team ? $user->team->name : null,
+                    'designation' => $user->designation ? $user->designation->name : null,
+                ],
                 'summary' => $summary,
                 'cards' => $results->toArray(),
             ];

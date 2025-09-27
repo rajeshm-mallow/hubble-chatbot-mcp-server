@@ -31,34 +31,7 @@ class EmployeeHierarchyTool extends BaseTool
     {
         return [
             'type' => 'object',
-            'properties' => [
-                'employee_id' => [
-                    'type' => 'integer',
-                    'description' => 'The ID of the employee to start the hierarchy from',
-                ],
-                'employee_name' => [
-                    'type' => 'string',
-                    'description' => 'The name of the employee to start the hierarchy from (alternative to employee_id)',
-                ],
-                'max_depth' => [
-                    'type' => 'integer',
-                    'description' => 'Maximum depth of hierarchy to show (default: 3)',
-                    'default' => 3,
-                    'minimum' => 1,
-                    'maximum' => 5,
-                ],
-                'include_inactive' => [
-                    'type' => 'boolean',
-                    'description' => 'Whether to include inactive employees (default: false)',
-                    'default' => false,
-                ],
-                'direction' => [
-                    'type' => 'string',
-                    'description' => 'Direction to traverse hierarchy (up, down, both)',
-                    'enum' => ['up', 'down', 'both'],
-                    'default' => 'both',
-                ],
-            ],
+            'properties' => [],
         ];
     }
 
@@ -68,60 +41,69 @@ class EmployeeHierarchyTool extends BaseTool
     public function handle(Request $request): Response
     {
         try {
-            $employeeId = $request->get('employee_id');
-            $employeeName = $request->get('employee_name');
-            $maxDepth = $request->get('max_depth', 3);
-            $includeInactive = $request->get('include_inactive', false);
-            $direction = $request->get('direction', 'both');
+            // Get current user from email header
+            $user = $this->getCurrentUserOrFail();
 
-            // Find employee if name is provided instead of ID
-            if ($employeeName && !$employeeId) {
-                $employee = Employee::where('name', 'like', "%{$employeeName}%")->first();
-                if (!$employee) {
-                    return Response::error("Employee with name '{$employeeName}' not found");
-                }
-                $employeeId = $employee->id;
-            }
-
-            // Validate employee ID
-            if (!$employeeId) {
-                return Response::error('Either employee_id or employee_name must be provided');
-            }
-
-            // Get the starting employee
-            $startEmployee = Employee::with(['role', 'manager'])->find($employeeId);
-            if (!$startEmployee) {
-                return Response::error("Employee with ID {$employeeId} not found");
-            }
+            // Load relationships
+            $user->load(['roles', 'team', 'designation', 'branch', 'reportingPersons', 'subordinates']);
 
             $hierarchy = [];
 
-            // Build hierarchy based on direction
-            if ($direction === 'up' || $direction === 'both') {
-                $hierarchy['managers'] = $this->getManagers($startEmployee, $maxDepth, $includeInactive);
-            }
+            // Get reporting persons (managers)
+            $hierarchy['managers'] = $user->reportingPersons->map(function ($manager) {
+                return [
+                    'level' => 1,
+                    'id' => $manager->id,
+                    'name' => $manager->name,
+                    'email' => $manager->email,
+                    'employee_id' => $manager->employee_id,
+                    'team' => $manager->team ? $manager->team->name : null,
+                    'designation' => $manager->designation ? $manager->designation->name : null,
+                    'active_status' => $manager->active_status,
+                ];
+            });
 
-            if ($direction === 'down' || $direction === 'both') {
-                $hierarchy['subordinates'] = $this->getSubordinates($startEmployee, $maxDepth, $includeInactive);
-            }
+            // Get subordinates
+            $hierarchy['subordinates'] = $user->subordinates->map(function ($subordinate) {
+                return [
+                    'level' => 1,
+                    'id' => $subordinate->id,
+                    'name' => $subordinate->name,
+                    'email' => $subordinate->email,
+                    'employee_id' => $subordinate->employee_id,
+                    'team' => $subordinate->team ? $subordinate->team->name : null,
+                    'designation' => $subordinate->designation ? $subordinate->designation->name : null,
+                    'active_status' => $subordinate->active_status,
+                ];
+            });
 
             // Get team statistics
-            $teamStats = $this->getTeamStatistics($startEmployee, $includeInactive);
+            $teamStats = [
+                'total_team_size' => $user->subordinates->count() + 1,
+                'direct_reports' => $user->subordinates->count(),
+                'managers_count' => $user->reportingPersons->count(),
+                'by_designation' => $user->subordinates->groupBy('designation.name')->map->count(),
+                'by_status' => $user->subordinates->groupBy('active_status')->map->count(),
+            ];
 
             // Prepare response data
             $responseData = [
                 'success' => true,
-                'message' => "Hierarchy generated for {$startEmployee->name}",
+                'message' => "Hierarchy generated for {$user->name}",
                 'starting_employee' => [
-                    'id' => $startEmployee->id,
-                    'name' => $startEmployee->name,
-                    'email' => $startEmployee->email,
-                    'department' => $startEmployee->department,
-                    'position' => $startEmployee->position,
-                    'role' => $startEmployee->role ? [
-                        'name' => $startEmployee->role->name,
-                        'level' => $startEmployee->role->level,
-                    ] : null,
+                    'id' => $user->id,
+                    'name' => $user->name,
+                    'email' => $user->email,
+                    'employee_id' => $user->employee_id,
+                    'team' => $user->team ? $user->team->name : null,
+                    'designation' => $user->designation ? $user->designation->name : null,
+                    'active_status' => $user->active_status,
+                    'roles' => $user->roles->map(function ($role) {
+                        return [
+                            'name' => $role->name,
+                            'display_name' => $role->display_name,
+                        ];
+                    }),
                 ],
                 'hierarchy' => $hierarchy,
                 'team_statistics' => $teamStats
@@ -134,107 +116,4 @@ class EmployeeHierarchyTool extends BaseTool
         }
     }
 
-    /**
-     * Get managers up the hierarchy.
-     */
-    private function getManagers(Employee $employee, int $maxDepth, bool $includeInactive): array
-    {
-        $managers = [];
-        $currentEmployee = $employee;
-        $depth = 0;
-
-        while ($currentEmployee->manager && $depth < $maxDepth) {
-            $currentEmployee = $currentEmployee->manager;
-            $depth++;
-
-            if (!$includeInactive && $currentEmployee->status !== 'active') {
-                continue;
-            }
-
-            $managers[] = [
-                'level' => $depth,
-                'id' => $currentEmployee->id,
-                'name' => $currentEmployee->name,
-                'email' => $currentEmployee->email,
-                'department' => $currentEmployee->department,
-                'position' => $currentEmployee->position,
-                'status' => $currentEmployee->status,
-                'role' => $currentEmployee->role ? [
-                    'name' => $currentEmployee->role->name,
-                    'level' => $currentEmployee->role->level,
-                ] : null,
-            ];
-        }
-
-        return $managers;
-    }
-
-    /**
-     * Get subordinates down the hierarchy.
-     */
-    private function getSubordinates(Employee $employee, int $maxDepth, bool $includeInactive): array
-    {
-        return $this->getSubordinatesRecursive($employee, 0, $maxDepth, $includeInactive);
-    }
-
-    /**
-     * Recursively get subordinates.
-     */
-    private function getSubordinatesRecursive(Employee $employee, int $currentDepth, int $maxDepth, bool $includeInactive): array
-    {
-        if ($currentDepth >= $maxDepth) {
-            return [];
-        }
-
-        $subordinates = [];
-        $directSubordinates = $employee->subordinates()->with(['role'])->get();
-
-        foreach ($directSubordinates as $subordinate) {
-            if (!$includeInactive && $subordinate->status !== 'active') {
-                continue;
-            }
-
-            $subordinateData = [
-                'level' => $currentDepth + 1,
-                'id' => $subordinate->id,
-                'name' => $subordinate->name,
-                'email' => $subordinate->email,
-                'department' => $subordinate->department,
-                'position' => $subordinate->position,
-                'status' => $subordinate->status,
-                'role' => $subordinate->role ? [
-                    'name' => $subordinate->role->name,
-                    'level' => $subordinate->role->level,
-                ] : null,
-                'subordinates' => $this->getSubordinatesRecursive($subordinate, $currentDepth + 1, $maxDepth, $includeInactive),
-            ];
-
-            $subordinates[] = $subordinateData;
-        }
-
-        return $subordinates;
-    }
-
-    /**
-     * Get team statistics.
-     */
-    private function getTeamStatistics(Employee $employee, bool $includeInactive): array
-    {
-        $query = Employee::where('id', $employee->id)
-            ->orWhere('manager_id', $employee->id);
-
-        if (!$includeInactive) {
-            $query->where('status', 'active');
-        }
-
-        $teamMembers = $query->get();
-
-        return [
-            'total_team_size' => $teamMembers->count(),
-            'direct_reports' => $teamMembers->where('manager_id', $employee->id)->count(),
-            'by_department' => $teamMembers->groupBy('department')->map->count(),
-            'by_status' => $teamMembers->groupBy('status')->map->count(),
-            'by_role' => $teamMembers->groupBy('role.name')->map->count(),
-        ];
-    }
 }
