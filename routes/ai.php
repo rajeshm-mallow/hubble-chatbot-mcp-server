@@ -2,4 +2,5 @@
 
 use Laravel\Mcp\Facades\Mcp;
 
-// Mcp::web('/mcp/demo', \App\Mcp\Servers\PublicServer::class);
+Mcp::web('/mcp/hubble-details', \App\Mcp\Servers\HubbleServer::class)
+    ->middleware('jwt.auth');
